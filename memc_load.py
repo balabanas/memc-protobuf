@@ -18,7 +18,7 @@ import appsinstalled_pb2
 import memcache
 import threading
 
-
+N_RETRY_ON_ERROR = 12 # number of retries in case inserting is unsuccessful
 NORMAL_ERR_RATE = 0.01
 AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "lat", "lon", "apps"])
 
@@ -45,19 +45,19 @@ def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
             logging.debug(f"{memc_addr} - {key} -> {ua_cr_replaced}")
         else:
             result, i = False, 0
-            while i < 50:
-                memc = memcache.Client((memc_addr,), debug=0)  # will not return error if no connection
+            while i < N_RETRY_ON_ERROR:
+                memc = memcache.Client((memc_addr,), debug=0)
                 result = memc.set(key, packed)
                 if result:
+                    memc.disconnect_all()  # this may be useful
                     return result
-                time.sleep(0.01)
+                memc.disconnect_all()  # this may be useful
+                time.sleep(0.02)
                 i += 1
-            logging.error('Insert unsuccessful')
             return False
     except Exception as e:
         logging.exception(f"Cannot write to memc {memc_addr}: {e}")
         return False
-
 
 
 def parse_appsinstalled(line):
@@ -70,7 +70,7 @@ def parse_appsinstalled(line):
     try:
         apps = [int(a.strip()) for a in raw_apps.split(",")]
     except ValueError:
-        apps = [int(a.strip()) for a in raw_apps.split(",") if a.isidigit()]
+        apps = [int(a.strip()) for a in raw_apps.split(",") if a.isdigit()]
         logging.info(f"Not all user apps are digits: `{line}`")
     try:
         lat, lon = float(lat), float(lon)
@@ -113,20 +113,13 @@ def process_file(fn, device_memc):
             if not batch:
                 break
             logging.info(f"File {fn}: batch {batch_n} / {int(nlines / 20000) +1}")
-            with ThreadPoolExecutor(max_workers=100) as executor:
+            with ThreadPoolExecutor(max_workers=200) as executor:
                 future_to_line = [executor.submit(process_line, n, line, device_memc, fn) for n, line in enumerate(batch)]
                 logging.info(f"File {fn}. Created thread pool")
                 for future in as_completed(future_to_line):
-                    # logging.info(f"File {fn}. Analysing future: {future}")
-                    # try:
                     data = future.result()
-                    # except Exception as exc:
-                    # logging.info(f'File {f.name}: error, {exc}')
-                    # else:
                     errors += not data[0]
                     processed += data[0]
-                        # if not data[1] % 10000:
-                        #     logging.info(f"Line {batch_n * 20000 + data[1] } of {fd.name} is done.")
             batch_n += 1
     logging.info(f"File {fn}. {processed} {errors}")
     err_rate = float(errors) / (errors + processed)
