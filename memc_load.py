@@ -24,10 +24,8 @@ AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "
 
 
 def dot_rename(path):
-    # head, fn = os.path.split(path)
-    # atomic in most cases
-    # os.rename(path, os.path.join(head, "." + fn))
-    pass
+    head, fn = os.path.split(path)
+    os.rename(path, os.path.join(head, "." + fn))
 
 
 def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
@@ -175,7 +173,7 @@ op.add_option("--idfa", action="store", default="127.0.0.1:33013")
 op.add_option("--gaid", action="store", default="127.0.0.1:33014")
 op.add_option("--adid", action="store", default="127.0.0.1:33015")
 op.add_option("--dvid", action="store", default="127.0.0.1:33016")
-(opts, args) = op.parse_args()
+opts, args = op.parse_args()
 logging.basicConfig(filename=opts.log, level=logging.INFO if not opts.dry else logging.DEBUG,
                     format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
 

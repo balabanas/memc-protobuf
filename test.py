@@ -1,16 +1,18 @@
 import collections
+import gzip
 import logging
+import os
 import sys
 import unittest
 # import appsinstalled_pb2
+from pathlib import Path
+
 import memc_load
 import memcache
 
 client_addr = '127.0.0.1:33013'  # test server address
 AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "lat", "lon", "apps"])
 
-# logger = logging.getLogger()
-# logger.level = logging.DEBUG
 
 class InsertAppsinstalledTest(unittest.TestCase):
 
@@ -84,6 +86,40 @@ class ParseAppinstalledTest(unittest.TestCase):
         sample = "idfa\tdevid\t55.55\t42.42\t1423,3,7,23\n"
         result = memc_load.parse_appsinstalled(sample)
         self.assertEqual(AppsInstalled(dev_type='idfa', dev_id='devid', lat=55.55, lon=42.42, apps=[1423, 3, 7, 23]), result)
+
+
+class FilesTest(unittest.TestCase):
+    def setUp(self) -> None:
+        # write a gunzipped file with some contents
+        content = "idfa\t1rfw452y52gq4g\t55.55\t42.42\t1423,43,567,3,7,23\ngaid\t7r452y52g2gq4g\t55.55\t42.42\t7423,424"
+        os.makedirs('test', exist_ok=True)
+        self.file_path = Path('test/test.tsv')
+        with open(self.file_path, 'w') as file:
+            file.write(content)
+        self.compressed_file_path = Path('test/test.tsv.gz')
+        with open(self.file_path, 'rb') as file_in:
+            with gzip.open(self.compressed_file_path, 'wb') as file_out:
+                file_out.writelines(file_in)
+        os.remove(self.file_path)
+
+    def test_dot_rename(self):
+        self.assertTrue(self.compressed_file_path.name in os.listdir('test'))
+        memc_load.dot_rename(self.compressed_file_path)
+        self.assertTrue('.' + self.compressed_file_path.name in os.listdir('test'))
+        self.assertFalse(self.compressed_file_path.name in os.listdir('test'))
+        os.rename(str(self.compressed_file_path.parent) + '/.' + str(self.compressed_file_path.name),
+                  self.compressed_file_path)
+
+    def tearDown(self) -> None:
+        os.remove(self.compressed_file_path)
+        os.rmdir('test')
+
+    def test_main(self):
+        from memc_load import opts
+        opts.pattern = 'test/*.tsv.gz'
+        memc_load.main(opts)
+        os.rename(str(self.compressed_file_path.parent) + '/.' + str(self.compressed_file_path.name),
+                  self.compressed_file_path)
 
 
 if __name__ == "__main__":

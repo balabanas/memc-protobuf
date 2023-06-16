@@ -4,17 +4,11 @@ services:
       image: memcached
       ports:
         - "33013:11211"
-#      networks:
-#        - my_net
 
   memcached-gaid:
       image: memcached
-#      environment:
-#        MEMCACHED_CACHE_SIZE: 128
       ports:
         - "33014:11211"
-#      networks:
-#        - my_net
   memcached-adid:
       image: memcached
       ports:

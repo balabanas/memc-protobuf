@@ -19,7 +19,7 @@ The goal is to refactor the existing script which loads data from .gzipped files
 
 ## Run instructions
 1. Start memcached containers: `docker compose up`
-2. Make sure the data to load is in appropriate directory, and named appropriately (default is `/data/appsinstalled/*.tsv.gz`), but you may alter parameters in `op.add_option` section of the `memc_load.py`
+2. Make sure the data to load is in appropriate directory, and named appropriately (default is `/data/appsinstalled/*.tsv.gz`), but you may alter parameters in `op.add_option` section of the `memc_load.py`. NB! If you whant to use data from `data/appinstalled directory` of the source code, set the parameter `pattern` to `data/appsinstalled/*.tsv.gz`: the first slash is omitted.
 3. Run `main` in `memc_load.py`: `python memc_load.py`
 
 ## Run tests
@@ -33,4 +33,5 @@ The goal of this example was to demonstrate multiprocessing/multithreading facil
 
 ## Some resources and instructions
 * The instruction to install Google's protocol buffers on Windows: `https://www.geeksforgeeks.org/how-to-install-protocol-buffers-on-windows/`. ProtoC compiler version: `protoc-23.2-win64.zip`
-* Make appsinstalled.proto file with: `protoc  --python_out=. ./appsinstalled.proto`
+* Make appinstalled_pb2.py from appsinstalled.proto file with: `protoc  --python_out=. ./appsinstalled.proto`
+* In the source, `_appinstalled_pb2.py` corresponds to an older version of a protoc compiler (came with a task), but `appinstalled_pb2.py` is created with a newer version of the compiler.
