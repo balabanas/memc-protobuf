@@ -1,25 +1,28 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import os
-import gzip
-import sys
-import glob
-import logging
 import collections
+import glob
+import gzip
+import logging
+import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, ProcessPoolExecutor, wait, FIRST_COMPLETED
 from itertools import islice
 from optparse import OptionParser
+
+import memcache
+# pip install python-memcached
 # brew install protobuf
 # protoc  --python_out=. ./appsinstalled.proto
 # pip install protobuf
 import appsinstalled_pb2
-# pip install python-memcached
-import memcache
-import threading
 
-N_RETRY_ON_ERROR = 12 # number of retries in case inserting is unsuccessful
-NORMAL_ERR_RATE = 0.01
+N_RETRY_ON_ERROR: int = 12  # number of retries in case inserting is unsuccessful
+BATCH_SIZE: int = 20000
+N_PROCESSES: int = 3
+N_THREADS: int = 200
+NORMAL_ERR_RATE: float = 0.01
 AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "lat", "lon", "apps"])
 
 
@@ -77,7 +80,6 @@ def parse_appsinstalled(line):
     return AppsInstalled(dev_type, dev_id, lat, lon, apps)
 
 
-
 def main(options):
     device_memc = {
         "idfa": options.idfa,
@@ -86,7 +88,7 @@ def main(options):
         "dvid": options.dvid,
     }
     files = sorted(list(glob.iglob(options.pattern)))  # to prefix processed files chronologically
-    with ProcessPoolExecutor(max_workers=3) as pexecutor:
+    with ProcessPoolExecutor(max_workers=N_PROCESSES) as pexecutor:
         iterator = {pexecutor.submit(process_file, fn, device_memc): fn for fn in files}
         files.reverse()  # to pop from the end
         while files:
@@ -102,17 +104,18 @@ def process_file(fn, device_memc):
     processed = errors = 0
     logging.info(f'Processing file {fn}')
     with gzip.open(fn, 'rt') as f:
-        nlines = sum(1 for i in f)
+        nlines = sum(1 for _ in f)
         f.seek(0)
         logging.info(f"File {fn}. Total lines to process: {nlines}")
         batch_n = 1
         while True:
-            batch = list(islice(f, 20000))
+            batch = list(islice(f, BATCH_SIZE))
             if not batch:
                 break
-            logging.info(f"File {fn}: batch {batch_n} / {int(nlines / 20000) +1}")
-            with ThreadPoolExecutor(max_workers=200) as executor:
-                future_to_line = [executor.submit(process_line, n, line, device_memc, fn) for n, line in enumerate(batch)]
+            logging.info(f"File {fn}: batch {batch_n} / {int(nlines / BATCH_SIZE) +1}")
+            with ThreadPoolExecutor(max_workers=N_THREADS) as executor:
+                future_to_line = \
+                    [executor.submit(process_line, n, line, device_memc, fn) for n, line in enumerate(batch)]
                 logging.info(f"File {fn}. Created thread pool")
                 for future in as_completed(future_to_line):
                     data = future.result()
@@ -126,7 +129,6 @@ def process_file(fn, device_memc):
     else:
         logging.error(f"File {fn}. Processed: {processed}. \
         High error rate ({err_rate} > {NORMAL_ERR_RATE}). Failed load")
-
 
 
 def process_line(n, line, device_memc, fn):
@@ -168,7 +170,7 @@ op = OptionParser()
 op.add_option("-t", "--test", action="store_true", default=False)
 op.add_option("-l", "--log", action="store", default=False)
 op.add_option("--dry", action="store_true", default=False)
-op.add_option("--pattern", action="store", default="data/appsinstalled/*.tsv.gz")
+op.add_option("--pattern", action="store", default="/data/appsinstalled/*.tsv.gz")
 op.add_option("--idfa", action="store", default="127.0.0.1:33013")
 op.add_option("--gaid", action="store", default="127.0.0.1:33014")
 op.add_option("--adid", action="store", default="127.0.0.1:33015")
@@ -179,13 +181,10 @@ logging.basicConfig(filename=opts.log, level=logging.INFO if not opts.dry else l
 
 
 if __name__ == '__main__':
-
     if opts.test:
         prototest()
         sys.exit(0)
-
     logging.info("Memc loader started with options: %s" % opts)
-
     try:
         main(opts)
     except Exception as e:

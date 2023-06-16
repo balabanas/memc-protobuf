@@ -19,10 +19,8 @@ AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "
 
 
 def dot_rename(path):
-    # head, fn = os.path.split(path)
-    # atomic in most cases
-    # os.rename(path, os.path.join(head, "." + fn))
-    pass
+    head, fn = os.path.split(path)
+    os.rename(path, os.path.join(head, "." + fn))
 
 
 def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
@@ -38,7 +36,7 @@ def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
         if dry_run:
             logging.debug("%s - %s -> %s" % (memc_addr, key, str(ua).replace("\n", " ")))
         else:
-            memc = memcache.Client([memc_addr], )
+            memc = memcache.Client([memc_addr])
             memc.set(key, packed, noreply=True)
     except Exception as e:
         logging.exception("Cannot write to memc %s: %s" % (memc_addr, e))
@@ -100,7 +98,7 @@ def main(options):
                 errors += 1
         if not processed:
             fd.close()
-            # dot_rename(fn)
+            dot_rename(fn)
             continue
 
         err_rate = float(errors) / processed
@@ -109,7 +107,7 @@ def main(options):
         else:
             logging.error("High error rate (%s > %s). Failed load" % (err_rate, NORMAL_ERR_RATE))
         fd.close()
-        # dot_rename(fn)
+        dot_rename(fn)
 
 
 def prototest():
@@ -133,7 +131,7 @@ if __name__ == '__main__':
     op.add_option("-t", "--test", action="store_true", default=False)
     op.add_option("-l", "--log", action="store", default=False)
     op.add_option("--dry", action="store_true", default=False)
-    op.add_option("--pattern", action="store", default="data/appsinstalled/*.tsv.gz")
+    op.add_option("--pattern", action="store", default="/data/appsinstalled/*.tsv.gz")
     op.add_option("--idfa", action="store", default="127.0.0.1:33013")
     op.add_option("--gaid", action="store", default="127.0.0.1:33014")
     op.add_option("--adid", action="store", default="127.0.0.1:33015")
@@ -144,7 +142,6 @@ if __name__ == '__main__':
     if opts.test:
         prototest()
         sys.exit(0)
-
     logging.info("Memc loader started with options: %s" % opts)
     try:
         main(opts)
