@@ -7,15 +7,23 @@ The goal is to refactor the existing script which loads data from .gzipped files
 * CPU-bound conversion operation by packing each data record into binary code with **protobuf** utility.
 
 ## Decisions made
-1. We use `ProcessPoolExecutor` and `ThreadPoolExecutor` from `concurrent.futures`.
-2. We start with running 3 processes for parallel processing of data files: each file in a directory is assigned in turn to an available process.
-3. Within each process, we read lines in batches of 20 000 records. Each record from a batch is assigned to one of the futures at the available thread, out of pool of 200 threads. 
-4. The idea to read in batches is to not create too large dictionaries with futures in memory, and made a process more responsive (we have a counter of batches there).
-5. Upon finishing processing each batch we count number of successfully processed (inserted) records, and are ready to process another batch.
-6. In the `insert_appinstalled` function we had to make following changes from the original script `memc_load_serial.py`:
-   1. Assign the result of a .set method to a variable to understand, whether the operation was successful or not
-   2. Implement retry block as sometimes a socket is not available for connect, possibly, due to high frequency of insert operations.
-   3. We also explicitely close connection each time by .`disconnect_all()` method to avoid `ResourceWarning: unclosed socket` warning.
+1. We open 4 connections with corresponding 4 instances of memcached (one per device type)
+2. We use `ProcessPoolExecutor` and `ThreadPoolExecutor` from `concurrent.futures`.
+3. We start with running 3 processes for parallel processing of data files: each file in a directory is assigned in turn to an available process.
+4. Within each process, we read lines in batches of 20 000 records. 
+5. Then each batch is splitted on 4, by device type. At this stage lines are packed into protobuf object.
+6. Then we assign each batch split to one of 4 threads, each is responsible for .set_multi bunch of records with similar batch_type.
+7. The idea to read in batches is to not create too large dictionaries with futures in memory, and made a process more responsive (we have a counter of batches there).
+9. Upon finishing processing each batch we count number of successfully processed (inserted) records, and are ready to process another batch.
+
+### Productivity boosters:
+* Persistant connections
+* Several processes to process files in parallel
+* Batch inserting by .set_multi
+* Several threads
+
+### See also:
+* Version with multiprocessing and multithreading, but with no persistand connection and .set_multi: https://github.com/balabanas/memc-protobuf/tree/8ce749771d1683c12e2a2cea43a4d98454e09042
 
 ## Run instructions
 1. Start memcached containers: `docker compose up`
