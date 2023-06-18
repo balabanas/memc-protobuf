@@ -21,17 +21,18 @@ import appsinstalled_pb2
 N_RETRY_ON_ERROR: int = 12  # number of retries in case inserting is unsuccessful
 BATCH_SIZE: int = 20000
 N_PROCESSES: int = 3
-N_THREADS: int = 200
+N_THREADS: int = 100
 NORMAL_ERR_RATE: float = 0.01
 AppsInstalled = collections.namedtuple("AppsInstalled", ["dev_type", "dev_id", "lat", "lon", "apps"])
 
 
 def dot_rename(path):
-    head, fn = os.path.split(path)
-    os.rename(path, os.path.join(head, "." + fn))
+    pass
+    # head, fn = os.path.split(path)
+    # os.rename(path, os.path.join(head, "." + fn))
 
 
-def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
+def insert_appsinstalled(memc, appsinstalled, dry_run=False):
     ua = appsinstalled_pb2.UserApps()
     ua.lat = appsinstalled.lat
     ua.lon = appsinstalled.lon
@@ -43,21 +44,21 @@ def insert_appsinstalled(memc_addr, appsinstalled, dry_run=False):
     try:
         if dry_run:
             ua_cr_replaced = str(ua).replace('\n', ' ')
-            logging.debug(f"{memc_addr} - {key} -> {ua_cr_replaced}")
+            # logging.debug(f"{memc_addr} - {key} -> {ua_cr_replaced}")
         else:
             result, i = False, 0
             while i < N_RETRY_ON_ERROR:
-                memc = memcache.Client((memc_addr,), debug=0)
+
                 result = memc.set(key, packed)
                 if result:
-                    memc.disconnect_all()  # this may be useful
+                    # memc.disconnect_all()  # this may be useful
                     return result
-                memc.disconnect_all()  # this may be useful
+                # memc.disconnect_all()  # this may be useful
                 time.sleep(0.02)
                 i += 1
             return False
     except Exception as e:
-        logging.exception(f"Cannot write to memc {memc_addr}: {e}")
+        # logging.exception(f"Cannot write to memc {memc_addr}: {e}")
         return False
 
 
@@ -81,15 +82,9 @@ def parse_appsinstalled(line):
 
 
 def main(options):
-    device_memc = {
-        "idfa": options.idfa,
-        "gaid": options.gaid,
-        "adid": options.adid,
-        "dvid": options.dvid,
-    }
     files = sorted(list(glob.iglob(options.pattern)))  # to prefix processed files chronologically
     with ProcessPoolExecutor(max_workers=N_PROCESSES) as pexecutor:
-        iterator = {pexecutor.submit(process_file, fn, device_memc): fn for fn in files}
+        iterator = {pexecutor.submit(process_file, fn): fn for fn in files}
         files.reverse()  # to pop from the end
         while files:
             dones = wait(iterator, return_when=FIRST_COMPLETED).done
@@ -100,7 +95,7 @@ def main(options):
                     logging.info(f"File {files.pop()} has been renamed")
 
 
-def process_file(fn, device_memc):
+def process_file(fn):  # device_memc
     processed = errors = 0
     logging.info(f'Processing file {fn}')
     with gzip.open(fn, 'rt') as f:
@@ -115,7 +110,7 @@ def process_file(fn, device_memc):
             logging.info(f"File {fn}: batch {batch_n} / {int(nlines / BATCH_SIZE) +1}")
             with ThreadPoolExecutor(max_workers=N_THREADS) as executor:
                 future_to_line = \
-                    [executor.submit(process_line, n, line, device_memc, fn) for n, line in enumerate(batch)]
+                    [executor.submit(process_line, n, line, fn) for n, line in enumerate(batch)]
                 logging.info(f"File {fn}. Created thread pool")
                 for future in as_completed(future_to_line):
                     data = future.result()
@@ -131,7 +126,7 @@ def process_file(fn, device_memc):
         High error rate ({err_rate} > {NORMAL_ERR_RATE}). Failed load")
 
 
-def process_line(n, line, device_memc, fn):
+def process_line(n, line, fn):  # device_memc
     line = line.strip()
     if not line:
         logging.error(f"File {fn}. No line")
@@ -144,7 +139,8 @@ def process_line(n, line, device_memc, fn):
     if not memc_addr:
         logging.error(f"File {fn}. Unknown device type: {appsinstalled.dev_type}")
         return False, n
-    ok = insert_appsinstalled(memc_addr, appsinstalled, False)
+    memc = conns[memc_addr]
+    ok = insert_appsinstalled(memc, appsinstalled, False)
     if not ok:
         logging.error(f"File {fn}. Memc insertion error for {appsinstalled.dev_type}, line {n}")
     return ok, n
@@ -170,7 +166,7 @@ op = OptionParser()
 op.add_option("-t", "--test", action="store_true", default=False)
 op.add_option("-l", "--log", action="store", default=False)
 op.add_option("--dry", action="store_true", default=False)
-op.add_option("--pattern", action="store", default="/data/appsinstalled/*.tsv.gz")
+op.add_option("--pattern", action="store", default="data/appsinstalled/*.tsv.gz")
 op.add_option("--idfa", action="store", default="127.0.0.1:33013")
 op.add_option("--gaid", action="store", default="127.0.0.1:33014")
 op.add_option("--adid", action="store", default="127.0.0.1:33015")
@@ -178,7 +174,13 @@ op.add_option("--dvid", action="store", default="127.0.0.1:33016")
 opts, args = op.parse_args()
 logging.basicConfig(filename=opts.log, level=logging.INFO if not opts.dry else logging.DEBUG,
                     format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
-
+device_memc = {
+    "idfa": opts.idfa,
+    "gaid": opts.gaid,
+    "adid": opts.adid,
+    "dvid": opts.dvid,
+}
+conns = {addr: memcache.Client((addr,), debug=0) for devtype, addr in device_memc.items()}
 
 if __name__ == '__main__':
     if opts.test:
@@ -187,6 +189,8 @@ if __name__ == '__main__':
     logging.info("Memc loader started with options: %s" % opts)
     try:
         main(opts)
+        for server in conns.values():
+            server.disconnect_all()
     except Exception as e:
         logging.exception("Unexpected error: %s" % e)
         sys.exit(1)
