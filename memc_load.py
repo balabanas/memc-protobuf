@@ -39,26 +39,22 @@ def insert_appsinstalled(memc, appsinstalled, dry_run=False):
     key = f"{appsinstalled.dev_type}:{appsinstalled.dev_id}"
     ua.apps.extend(appsinstalled.apps)
     packed = ua.SerializeToString()
-    # @TODO persistent connection
-    # @TODO retry and timeouts!
+    # @TODO timeouts!
     try:
         if dry_run:
             ua_cr_replaced = str(ua).replace('\n', ' ')
-            # logging.debug(f"{memc_addr} - {key} -> {ua_cr_replaced}")
+            logging.debug(f"{memc.servers[0]} - {key} -> {ua_cr_replaced}")
         else:
             result, i = False, 0
             while i < N_RETRY_ON_ERROR:
-
                 result = memc.set(key, packed)
                 if result:
-                    # memc.disconnect_all()  # this may be useful
                     return result
-                # memc.disconnect_all()  # this may be useful
                 time.sleep(0.02)
                 i += 1
             return False
     except Exception as e:
-        # logging.exception(f"Cannot write to memc {memc_addr}: {e}")
+        logging.exception(f"Cannot write to memc {memc.servers[0]}: {e}")
         return False
 
 
@@ -81,8 +77,8 @@ def parse_appsinstalled(line):
     return AppsInstalled(dev_type, dev_id, lat, lon, apps)
 
 
-def main(options):
-    files = sorted(list(glob.iglob(options.pattern)))  # to prefix processed files chronologically
+def main():
+    files = sorted(list(glob.iglob(opts.pattern)))  # to prefix processed files chronologically
     with ProcessPoolExecutor(max_workers=N_PROCESSES) as pexecutor:
         iterator = {pexecutor.submit(process_file, fn): fn for fn in files}
         files.reverse()  # to pop from the end
@@ -140,7 +136,7 @@ def process_line(n, line, fn):  # device_memc
         logging.error(f"File {fn}. Unknown device type: {appsinstalled.dev_type}")
         return False, n
     memc = conns[memc_addr]
-    ok = insert_appsinstalled(memc, appsinstalled, False)
+    ok = insert_appsinstalled(memc, appsinstalled, opts.dry)
     if not ok:
         logging.error(f"File {fn}. Memc insertion error for {appsinstalled.dev_type}, line {n}")
     return ok, n
@@ -172,7 +168,7 @@ op.add_option("--gaid", action="store", default="127.0.0.1:33014")
 op.add_option("--adid", action="store", default="127.0.0.1:33015")
 op.add_option("--dvid", action="store", default="127.0.0.1:33016")
 opts, args = op.parse_args()
-logging.basicConfig(filename=opts.log, level=logging.INFO if not opts.dry else logging.DEBUG,
+logging.basicConfig(filename=opts.log, level=logging.DEBUG if not opts.dry else logging.DEBUG,
                     format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
 device_memc = {
     "idfa": opts.idfa,
@@ -188,7 +184,7 @@ if __name__ == '__main__':
         sys.exit(0)
     logging.info("Memc loader started with options: %s" % opts)
     try:
-        main(opts)
+        main()
         for server in conns.values():
             server.disconnect_all()
     except Exception as e:

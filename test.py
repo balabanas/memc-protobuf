@@ -34,28 +34,22 @@ class InsertAppsinstalledTest(unittest.TestCase):
 
     def test_insert(self):
         appinstalled = AppsInstalled('somedev', 'someid', 55.1, 55.1, [1, 2, 3])
-        result = memc_load.insert_appsinstalled(client_addr, appinstalled, False)
+        result = memc_load.insert_appsinstalled(self.memc, appinstalled, False)
         self.assertTrue(result)
         val = self.memc.get('somedev:someid')
         self.assertEqual(b'\x08\x01\x08\x02\x08\x03\x11\xcd\xcc\xcc\xcc\xcc\x8cK@\x19\xcd\xcc\xcc\xcc\xcc\x8cK@', val)
 
     def test_insert_fail_nonexistent_instance(self):
         appinstalled = AppsInstalled('somedev', 'someid', 55.1, 55.1, [1, 2, 3])
-        result = memc_load.insert_appsinstalled('127.0.0.1:35004', appinstalled, False)
-        self.assertFalse(result)
-
-    def test_insert_fail_bad_address(self):
-        appinstalled = AppsInstalled('somedev', 'someid', 55.1, 55.1, [1, 2, 3])
-        result = memc_load.insert_appsinstalled(0, appinstalled, False)
+        nonex_memc = memcache.Client(['127.0.0.1:35004', ])
+        result = memc_load.insert_appsinstalled(nonex_memc, appinstalled, False)
         self.assertFalse(result)
 
     def test_insert_dry_run(self):
         appinstalled = AppsInstalled('somedev', 'someid', 55.1, 55.1, [1, 2, 3])
-        # stream_handler = logging.StreamHandler(sys.stdout)
-        # logger.addHandler(stream_handler)
         with self.assertLogs(level='DEBUG') as cm:
-            memc_load.insert_appsinstalled(client_addr, appinstalled, True)
-        self.assertIn('DEBUG:root:127.0.0.1:33013 - somedev:someid -> apps: 1 apps: 2 apps: 3 lat: 55.1 lon: 55.1 ',
+            memc_load.insert_appsinstalled(self.memc, appinstalled, True)
+        self.assertIn('DEBUG:root:inet:127.0.0.1:33013 - somedev:someid -> apps: 1 apps: 2 apps: 3 lat: 55.1 lon: 55.1 ',
                       cm.output)
 
 
@@ -117,7 +111,7 @@ class FilesTest(unittest.TestCase):
     def test_main(self):
         from memc_load import opts
         opts.pattern = 'test/*.tsv.gz'
-        memc_load.main(opts)
+        memc_load.main()
         os.rename(str(self.compressed_file_path.parent) + '/.' + str(self.compressed_file_path.name),
                   self.compressed_file_path)
 
